@@ -1,8 +1,9 @@
-const util = require('util');
-const pixels = require('image-pixels');
-const cryptoJs = require('crypto-js');
+import { format } from "util";
+import { webcrypto } from "crypto";
+import pixels from "image-pixels";
+import cryptoJs from "crypto-js";
+
 const user_agent = "Mozilla/5.0 (X11; Linux x86_64; rv:133.0) Gecko/20100101 Firefox/133.0";
-import { webcrypto } from 'crypto'
 const crypto = webcrypto as unknown as Crypto
 
 let wasm: any;
@@ -13,7 +14,7 @@ let referrer = "";
 
 function isDetached(buffer: ArrayBuffer): boolean {
     if (buffer.byteLength === 0) {
-        const formatted = util.format(buffer)
+        const formatted = format(buffer)
         return formatted.includes('detached')
     }
     return false
@@ -482,9 +483,35 @@ function initWasm() {
             },
             '__wbg_eval_c824e170787ad184': function() {
                 return applyToWindow(function(index: number, offset: number) {
-                    let fake_str = "fake_" + decodeSub(index, offset);
-                    let ev = eval(fake_str);
-                    return addToStack(ev);
+                    const payload = decodeSub(index, offset);
+                    const spoofFunctions = {
+                        'window.navigator.webdriver': () => fake_window.navigator.webdriver,
+                        'window.navigator.userAgent': () => fake_window.navigator.userAgent,
+                        'window.ReactNativeWebView': () => undefined,
+                        'window.pid': (pid: string) => fake_window.pid = pid,
+                        'window.localStorage.setItem': (key: string, value: string) => fake_window.localStorage.setItem(key, value)
+                    }
+                    const execSpoofedFunc = (payload: string) => {
+                        if (spoofFunctions[payload]) {
+                            return spoofFunctions[payload]();
+                        }
+                        if (payload.startsWith("window.pid = '")) {
+                            const value = payload.slice(14, -1);
+                            return spoofFunctions['window.pid'](value);
+                        }
+                        if (payload.startsWith("window.localStorage.setItem('")) {
+                            const parts = payload.split("'");
+                            if (parts.length >= 4) {
+                                const key = parts[1];
+                                const value = parts[3];
+                                return spoofFunctions['window.localStorage.setItem'](key, value);
+                            }
+                        }
+                        return null;
+                    };
+                    const result = execSpoofedFunc(payload);
+                    console.log(payload, result);
+                    return addToStack(result);
                 }, arguments)
             },
             '__wbg_call_3f093dd26d5569f8': function() {
@@ -686,6 +713,4 @@ const main = async (embed_url: string, site: string) => {
     console.log(real);
 }
 
-
-main("https://megacloud.tv/embed-2/e-1/3MzsS8GcJQo1?k=1", "https://hianime.to"); //change this value to the embed_url you want
-//the second arguments is the original site you want to extract from, this is needed so it can be used as the referrer
+main("https://megacloud.club/embed-2/e-1/8JOGPTgEMVPC?k=1", "https://hianime.to"); //change this value to the embed_url you want
